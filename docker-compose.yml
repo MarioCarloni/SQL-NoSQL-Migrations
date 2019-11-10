@@ -1,0 +1,133 @@
+version: '3.1'
+
+services:
+
+  py_seeds:
+    container_name: py_seeds
+    build: "./src"
+    depends_on:
+      - postgres_db
+      - mongo_db
+      - neo4j_db
+    volumes:
+      - ./src/seed_postgres.py:/app/src/seed_postgres.py:rw
+      - ./src/seed_mongo.py:/app/src/seed_mongo.py:rw
+      - ./src/seed_neo4j.py:/app/src/seed_neo4j.py:rw
+    environment:
+      db_user: "${DB_USER}"
+      db_pw: "${DB_PW}"
+      db_name: "${DB_NAME}"
+
+  
+  postgres_db:
+    container_name: postgres_db
+    image: postgres
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: "${DB_USER}"
+      POSTGRES_PASSWORD: "${DB_PW}"
+      POSTGRES_DB: "${DB_NAME}"
+
+  mongo_db:
+    container_name: mongo_db
+    image: mongo
+    restart: always
+    volumes:
+      - mongodata:/data/db
+    environment:
+      MONGODB_USER: "${DB_USER}"
+      MONGODB_PASS: "${DB_PW}"
+      MONGODB_DATABASE: "${DB_NAME}"
+
+  neo4j_db:
+    container_name: neo4j_db
+    image: neo4j
+    restart: always
+    volumes:
+      - neo4jdata:/var/lib/neo4j/data
+      - /src/import:/var/lib/neo4j/import
+    environment:
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_dbms_shell_enabled: "true"
+      NEO4J_AUTH: neo4j/${DB_PW}
+
+  cassandra:
+    container_name: cassandra
+    image: cassandra:3
+    healthcheck:
+      test: ["CMD-SHELL", "[ $$(nodetool statusgossip) = running ]"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandradata:/bitnami
+    environment:
+      CASSANDRA_USER: "${DB_USER}"
+      CASSANDRA_PASSWORD: "${DB_PW}"
+
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: zookeeper
+    networks:
+      - kfkzk
+    volumes:
+      - zookeeperdata:/data
+ 
+  kafka:
+    image: wurstmeister/kafka
+    container_name: kafka
+    ports:
+    - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: localhost
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: TestTopic1:1:1
+    depends_on:
+      - zookeeper
+    networks:
+      - kfkzk
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+
+  spark-master:
+    container_name: spark-master
+    image: spydernaz/spark-master:latest
+    ports:
+      - "9090:8080"
+      - "7077:7077"
+    volumes:
+       - ./apps:/opt/spark-apps
+       - ./data:/opt/spark-data
+    environment:
+      - "SPARK_LOCAL_IP=spark-master"
+      
+  spark-worker:
+    container_name: spark-worker
+    image: spydernaz/spark-worker:latest
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_DRIVER_MEMORY=128m
+      - SPARK_EXECUTOR_MEMORY=256m
+    volumes:
+       - ./apps:/opt/spark-apps
+       - ./data:/opt/spark-data
+
+volumes:
+  pgdata:
+  mongodata:
+  neo4jdata:
+  kafkadata:
+  zookeeperdata:
+  cassandradata:
+
+networks:
+  kfkzk:

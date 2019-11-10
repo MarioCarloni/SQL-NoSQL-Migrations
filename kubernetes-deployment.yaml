@@ -1,0 +1,380 @@
+apiVersion: v1
+items:
+
+# Persistent volume for cassandra db
+- apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: cassandra-pv
+    namespace: smack
+    labels:
+      name: cassandra-pv
+      type: local
+  spec:
+    capacity:
+      storage: 100Mi
+    accessModes:
+      - ReadWriteOnce
+    hostPath:
+      path: "/var/lib/cassandra/data"
+  status: {}
+
+# Volume claim for cassandra db
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: cassandra-pv-claim
+    namespace: smack
+    labels:
+      name: cassandra-pv-claim
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    volumeMode: Filesystem
+    resources:
+      requests:
+        storage: 100Mi
+  status: {}
+
+# cassandra db deployment
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    labels:
+      app: cassandra-db
+    name: cassandra-db
+    namespace: smack
+  spec:
+    replicas: 1
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: cassandra-db
+      spec:
+        containers:
+        - env:
+          - name: DB_PASSWORD
+            value: Password1234
+          image: cassandra:#.#
+          name: cassandra-db
+          resources: {}
+          volumeMounts:
+          - mountPath: /var/lib/cassandra/data
+            name: cassandra-pv
+            subPath: postgres
+        restartPolicy: Always
+        volumes:
+        - name: cassandra-pv
+          persistentVolumeClaim:
+            claimName: cassandra-pv-claim
+  status: {}
+
+# cassandra db service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: cassandra-db
+    name: cassandra-db
+    namespace: smack
+  spec:
+    ports:
+    - name: "9042"
+      port: 9042
+      targetPort: 9042
+    selector:
+      app: cassandra-db
+  status:
+    loadBalancer: {}
+
+# mesos deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: mesosdeploy
+    namespace: smack
+    labels:
+      keel.sh/policy: force
+      keel.sh/match-tag: "true"
+      app: mesos
+  spec:
+    selector:
+      matchLabels:
+        app: mesos
+    replicas: 1 
+    revisionHistoryLimit: 1
+    strategy: {}
+    template:
+      metadata:
+        labels:
+          app: mesos
+      spec:
+        containers:
+        - name: mesos-main
+          image: privateContainerReg.aws.io/mesos:tagName
+          imagePullPolicy: Always
+          ports:
+          - name: "mesos-deploy-80"
+            containerPort: 80
+            protocol: TCP
+          resources: {}
+        restartPolicy: Always
+  status: {}
+
+# mesos service
+- apiVersion: v1
+  kind: Service
+  metadata:
+      name: mesos-svc
+      namespace: smack
+  spec:
+    type: LoadBalancer
+    selector:
+        app: mesos
+    ports:
+      - name: "mesos-svc-80"
+        port: 80
+        targetPort: 80
+        protocol: TCP
+
+# spark deployment
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    labels:
+      app: spark
+      keel.sh/policy: force
+      keel.sh/match-tag: "true"
+    name: spark
+    namespace: smack
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: spark
+    strategy: {}
+    template:
+      metadata:
+        labels:
+          app: spark
+      spec:
+        containers:
+        - image: privateContainerReg.aws.io/spark:latest
+          imagePullPolicy: Always
+          name: spark
+          ports:
+          - containerPort: 9090
+          resources: {}
+        restartPolicy: Always
+  status: {}
+
+# spark service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+    labels:
+      app: spark
+    name: spark
+    namespace: smack
+  spec:
+    ports:
+    - name: "8080"
+      port: 8080
+      targetPort: 9090
+    selector:
+      app: spark
+  status:
+    loadBalancer: {}
+
+# kafka deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: kafka-deploy
+    namespace: smack
+    labels:
+      keel.sh/policy: force
+      keel.sh/match-tag: "true"
+      app: kafka
+  spec:
+    selector:
+      matchLabels:
+        app: kafka
+    replicas: 1 # tells deployment to run 3 pods matching the template
+    revisionHistoryLimit: 1
+    strategy: {}
+    template:
+      metadata:
+        labels:
+          app: kafka
+      spec:
+        containers:
+        - name: kafka
+          image: privateContainerReg.aws.io/kafka:latest
+          imagePullPolicy: Always
+          ports:
+          - name: "kafka-port"
+            containerPort: 9092
+            protocol: TCP
+          resources: {}
+        restartPolicy: Always
+  status: {}
+
+# kafka service
+- apiVersion: v1 # for versions before 1.9.0 use apps/v1beta2
+  kind: Service
+  metadata:
+      name: kafka-svc
+      namespace: smack
+  spec:
+    type: LoadBalancer
+    selector:
+        app: kafka
+    ports:
+      - name: "kafka-svc-port"
+        port: 80
+        targetPort: 9092
+        protocol: TCP
+
+# akka deployment
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    labels:
+      app: akka
+      keel.sh/policy: force
+      keel.sh/match-tag: "true"
+    name: akka
+    namespace: smack
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 5
+    selector:
+      matchLabels:
+        app: akka
+    strategy: {}
+    template:
+      metadata:
+        labels:
+          app: akka
+      spec:
+        containers:
+        - image: privateContainerReg.aws.io/akka:latest
+          imagePullPolicy: Always
+          name: akka
+          ports:
+          - containerPort: 9001
+          resources: {}
+        restartPolicy: Always
+  status: {}
+
+# akka service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: akka
+    name: akka
+    namespace: smack
+  spec:
+    ports:
+    - name: "akka-svc-port"
+      port: 9002
+      targetPort: 9001
+    selector:
+      app: akka
+  status:
+    loadBalancer: {}
+
+# PRODUCTION CLUSTER ISSUER
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: ClusterIssuer
+  metadata:
+    name: letsencrypt-prod
+  spec:
+    acme:
+      server: https://acme-v02.api.letsencrypt.org/directory
+      email: dataops@carloniSolutions.com
+      privateKeySecretRef:
+        name: letsencrypt-prod
+      http01: {} 
+
+# kafka prod cert
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Certificate
+  metadata:
+    name: kafka-prod-cert
+    namespace: smack
+  spec:
+    secretName: kafka-prod-cert
+    renewBefore: 360h #15 days
+    dnsNames:
+    - aws.dnsName.kafkastream.etc.com
+    acme:
+      config:
+      - http01:
+          ingressClass: nginx
+        domains:
+        - aws.dnsName.kafkastream.etc.com
+    issuerRef:
+      name: letsencrypt-prod
+      kind: ClusterIssuer 
+
+# SMACK INGRESS RESOURCE
+- apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    name: smack-ingress
+    namespace: smack
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      certmanager.k8s.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/rewrite-target: /
+  spec:
+    tls:
+    - hosts:
+      - aws.dnsName.kafkastream.etc.com
+      secretName: kafka-prod-cert
+    rules:
+    - host: aws.dnsName.kafkastream.etc.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: kafka-svc
+            servicePort: 80
+    - host: aws.dnsName.cassandra.etc.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: cassandra-db
+            servicePort: 80
+    - host: aws.dnsName.mesos.etc.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: mesos-svc
+            servicePort: 80
+    - host: aws.dnsName.spark.etc.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: spark
+            servicePort: 80
+    - host: aws.dnsName.akka.etc.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: akka
+            servicePort: 80
+    
+kind: List
+metadata: {}
